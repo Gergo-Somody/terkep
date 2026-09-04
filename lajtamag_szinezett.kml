@@ -16319,32 +16319,6 @@
         </outerBoundaryIs>
       </Polygon>
     </Placemark>
-    <Placemark>
-      <name>Mórvető, fűrésztelep</name>
-      <Style>
-        <LineStyle>
-          <color>ffa964ed</color>
-          <width>2</width>
-        </LineStyle>
-        <PolyStyle>
-          <color>ffa964ed</color>
-        </PolyStyle>
-      </Style>
-      <Polygon>
-        <outerBoundaryIs>
-          <LinearRing>
-            <coordinates>
-              17.4752355,47.8191199,0
-              17.4792695,47.8213819,0
-              17.4789369,47.8218934,0
-              17.4787438,47.8222464,0
-              17.474066,47.8215908,0
-            </coordinates>
-          </LinearRing>
-        </outerBoundaryIs>
-      </Polygon>
-    </Placemark>
-    <Placemark>
       <name>Proletár bal 3</name>
       <Style>
         <LineStyle>
