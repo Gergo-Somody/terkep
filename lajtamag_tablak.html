@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="hu">
+<head>
+<meta charset="utf-8"/>
+<title>Kereső & Táblák</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<link rel="stylesheet" href="https://unpkg.com/leaflet.locatecontrol/dist/L.Control.Locate.min.css" />
+<style>
+  html, body, #map { height: 100%; margin: 0; }
+  .search-control {
+    background: rgba(255,255,255,0.95);
+    padding: 8px;
+    border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+    width: 280px;
+    font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+  }
+  .search-input {
+    width: 100%;
+    padding: 6px 8px;
+    font-size: 14px;
+    border: 1px solid #ccc;
+    border-radius: 6px;
+    outline: none;
+    box-sizing: border-box;
+  }
+  .suggestions {
+    max-height: 200px;
+    overflow-y: auto;
+    margin-top: 6px;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    background: #fff;
+  }
+  .suggestion { padding: 6px 8px; cursor: pointer; }
+  .suggestion:hover { background: #f0f7ff; }
+  .pill {
+    display: inline-block;
+    background: #eef2ff;
+    color: #334155;
+    border-radius: 9999px;
+    padding: 2px 8px;
+    font-size: 12px;
+    margin-left: 6px;
+  }
+</style>
+</head>
+<body>
+<div id="map"></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet.locatecontrol/dist/L.Control.Locate.min.js"></script>
+<!-- Omnivore: automatikusan betölti és kezeli a KML fájlt -->
+<script src="https://unpkg.com/leaflet-omnivore@0.3.4/leaflet-omnivore.min.js"></script>
+
+<script>
+const map = L.map('map');
+
+L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+  attribution: 'Esri'
+}).addTo(map);
+
+L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}', {
+  attribution: 'Esri', opacity: 0.9
+}).addTo(map);
+
+L.control.locate({ position: 'topleft', flyTo: true, strings: { title: "Pozícióm" } }).addTo(map);
+
+function normalize(s) {
+  return (s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[-_/,.]+/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+const defaultStyle = { color: '#3388ff', weight: 2, fillOpacity: 0.35 };
+const highlightStyle = { color: '#ff3b30', weight: 5, fillOpacity: 0.5 };
+
+let highlighted = [];
+const featuresByName = new Map();
+const allNames = [];
+
+// ITT TÖLTI BE A MELLETT LÉVŐ KML FÁJLT:
+const kmlLayer = omnivore.kml('lajtamag_szinezett.kml', null, L.geoJson(null, {
+  style: defaultStyle,
+  onEachFeature: function(feature, layer) {
+    const nm = feature.properties.name || feature.properties.Name || '(névtelen)';
+    const nn = normalize(nm);
+    if (!featuresByName.has(nn)) featuresByName.set(nn, []);
+    featuresByName.get(nn).push(layer);
+    allNames.push(nm);
+
+    layer.bindPopup(nm);
+    layer.on('click', () => selectByName(nm));
+  }
+}))
+.on('ready', function() {
+  map.fitBounds(kmlLayer.getBounds(), { padding: [20, 20] });
+})
+.addTo(map);
+
+function clearHighlight() {
+  highlighted.forEach(l => kmlLayer.resetStyle(l));
+  highlighted = [];
+}
+
+function selectByName(raw) {
+  const key = normalize(raw);
+  const layers = [];
+  if (featuresByName.has(key)) {
+    layers.push(...featuresByName.get(key));
+  } else {
+    for (const [nn, arr] of featuresByName.entries()) {
+      if (nn.includes(key)) layers.push(...arr);
+    }
+  }
+  if (layers.length === 0) return;
+
+  clearHighlight();
+  const group = L.featureGroup(layers);
+  map.fitBounds(group.getBounds(), { padding: [30,30] });
+
+  layers.forEach(l => {
+    l.setStyle(highlightStyle);
+    highlighted.push(l);
+    l.bringToFront();
+  });
+}
+
+// Kereső felület
+const SearchControl = L.Control.extend({
+  onAdd: function(map) {
+    const container = L.DomUtil.create('div', 'search-control leaflet-bar');
+    container.style.background = 'transparent';
+    container.style.border = 'none';
+
+    const box = document.createElement('div');
+    box.className = 'search-control';
+
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.placeholder = 'Tábla keresése...';
+    input.className = 'search-input';
+    input.setAttribute('autocomplete', 'off');
+
+    const info = document.createElement('div');
+    info.style.marginTop = '4px';
+    info.style.fontSize = '12px';
+    info.style.color = '#475569';
+    info.innerHTML = 'Kereséshez gépelj<span class="pill">Enter</span>';
+
+    const suggestions = document.createElement('div');
+    suggestions.className = 'suggestions';
+    suggestions.style.display = 'none';
+
+    function updateSuggestions() {
+      const q = normalize(input.value);
+      const unique = Array.from(new Set(allNames));
+      const matches = unique.filter(n => normalize(n).includes(q)).slice(0, 12);
+
+      suggestions.innerHTML = '';
+      if (!q || matches.length === 0) {
+        suggestions.style.display = 'none';
+        return;
+      }
+      suggestions.style.display = 'block';
+      matches.forEach(m => {
+        const item = document.createElement('div');
+        item.className = 'suggestion';
+        item.textContent = m;
+        item.onclick = () => {
+          input.value = m;
+          suggestions.style.display = 'none';
+          selectByName(m);
+        };
+        suggestions.appendChild(item);
+      });
+    }
+
+    input.addEventListener('input', updateSuggestions);
+    input.addEventListener('focus', updateSuggestions);
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        suggestions.style.display = 'none';
+        selectByName(input.value);
+      }
+      e.stopPropagation();
+    });
+
+    L.DomEvent.disableClickPropagation(container);
+    L.DomEvent.disableScrollPropagation(container);
+
+    box.appendChild(input);
+    box.appendChild(info);
+    box.appendChild(suggestions);
+    container.appendChild(box);
+    return container;
+  }
+});
+
+map.addControl(new SearchControl({ position: 'topleft' }));
+</script>
+</body>
+</html>
